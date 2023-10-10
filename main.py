@@ -7,14 +7,67 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import json
 import subprocess
+import warnings
 
+warnings.simplefilter("ignore", DeprecationWarning)
+
+emails_loaded = False
 
 
 error_dialog = None
 
 
 
+import re
 
+class HighlightText(tk.Text):
+    def __init__(self, *args, **kwargs):
+        tk.Text.__init__(self, *args, **kwargs)
+        self.configure_tags()
+        self.bind("<KeyRelease>", self.on_key_release)
+        self.re_highlight_pattern = re.compile(r"<[^<>]+>")
+
+    def configure_tags(self):
+        self.tag_configure("HTML_TAG", foreground="blue")
+
+    def on_key_release(self, event=None):
+        self.remove_tags("1.0", tk.END)
+        self.apply_tags("1.0", tk.END)
+
+    def remove_tags(self, start, end):
+        self.tag_remove("HTML_TAG", start, end)
+
+    def apply_tags(self, start, end):
+        text = self.get(start, end)
+        for match in self.re_highlight_pattern.finditer(text):
+            self.tag_add("HTML_TAG", f"{start} + {match.start()} chars", f"{start} + {match.end()} chars")
+
+
+def open_html_editor():
+    html_win = tk.Toplevel()
+    html_win.title("HTML Editor")
+
+    advanced_html_editor_frame = tk.Frame(html_win)
+    advanced_html_editor_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+    advanced_html_editor = HighlightText(advanced_html_editor_frame, wrap=tk.WORD)
+    advanced_html_editor.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    scrollbar = tk.Scrollbar(advanced_html_editor_frame, command=advanced_html_editor.yview)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    advanced_html_editor.config(yscrollcommand=scrollbar.set)
+
+    current_content = html_editor.get("1.0", tk.END)
+    advanced_html_editor.insert("1.0", current_content)
+
+    def save_and_close():
+        content = advanced_html_editor.get("1.0", tk.END)
+        html_editor.delete("1.0", tk.END)
+        html_editor.insert("1.0", content)
+        html_win.destroy()
+
+    save_button = tk.Button(html_win, text="Save", command=save_and_close)
+    save_button.pack(pady=10)
 
 
 def close_error_dialog():
@@ -66,6 +119,19 @@ def clear_fields():
     email_pass.set("")
     subject_entry.delete(0, tk.END)
     html_editor.delete("1.0", tk.END)
+
+
+def save_email_to_html():
+    file_path = filedialog.asksaveasfilename(defaultextension=".html", filetypes=[("HTML Files", "*.html")])
+    if not file_path:
+        return  # User canceled the save dialog
+
+    with open(file_path, "w") as file:
+        html_content = html_editor.get("1.0", tk.END)
+        file.write(html_content)
+
+    messagebox.showinfo("Info", "Email saved successfully!")
+
 
 def load_email_from_html():
     file_path = filedialog.askopenfilename(filetypes=[("HTML Files", "*.html")])
@@ -125,6 +191,7 @@ def load_email_list():
     update_email_listbox()
     emails_loaded = True
 
+
 def send_emails():
     def threaded_send():
         # Validate required fields
@@ -133,9 +200,14 @@ def send_emails():
             messagebox.showwarning("Warning", "No emails loaded.")
             return
 
-        if not smtp_server.get() or not email_user.get() or not email_pass.get():
-            messagebox.showwarning("Error", "SMTP Server, Email User, and Email Password are required fields.")
-            return
+        if not use_local_smtp.get():
+            if not smtp_server.get() or not email_user.get() or not email_pass.get():
+                messagebox.showwarning("Error", "SMTP Server, Email User, and Email Password are required fields.")
+                return
+        else:
+            if not smtp_server.get():
+                messagebox.showwarning("Error", "SMTP Server is a required field.")
+                return
 
         # Create a separate email_dict for this thread
         local_email_dict = {}
@@ -146,7 +218,10 @@ def send_emails():
             return
 
         total_emails = len(email_list)
-        delay_between_emails = (24 * 60 * 60) / total_emails
+        if no_wait_var.get():
+            delay_between_emails = 0
+        else:
+            delay_between_emails = (24 * 60 * 60) / total_emails
 
         try:
             print("Sending emails...")
@@ -211,6 +286,54 @@ def clear_email_list():
     email_listbox.delete(0, tk.END)
 
 
+def about_dialog():
+    about_win = tk.Toplevel()
+    about_win.title("About EmailKiller")
+
+    about_content = """
+EmailKiller\n\nVersion 1.0\n\n
+EmailKiller: Send up to 10k emails per day.\n
+Takes 24 hours to send all emails to prevent spam detection.\n
+Send from SMTP or local server.\n
+Fully supports HTML.\n
+Developed by Derek Johnston 2023\n\n
+If you found this software helpful, consider donating:\n
+ETH: 0xB139a7f6A2398fd4F50BbaC9970da8BE57E6F539\n
+BTC: bc1qeyuvfap99mx3r269htxm60qs04xuq4a9ahpjvt
+    """
+
+    about_label = tk.Label(about_win, text=about_content, padx=20, pady=20)
+    about_label.pack()
+
+    close_button = tk.Button(about_win, text="Close", command=about_win.destroy)
+    close_button.pack(pady=10)
+
+    about_win.transient(root)
+    about_win.grab_set()
+    root.wait_window(about_win)
+
+
+def help_dialog():
+    help_win = tk.Toplevel()
+    help_win.title("Help for EmailKiller")
+
+    help_text = """To use EmailKiller:
+    1. Load or type in your SMTP configuration.
+    2. Use 'Load Email List' to load the list of recipients.
+    3. Load or type in the content of the HTML email.
+    4. Press 'Send Emails' to start sending.
+
+    Note: Make sure your SMTP settings are correct."""
+
+    help_label = tk.Label(help_win, text=help_text, padx=20, pady=20, justify=tk.LEFT)
+    help_label.pack()
+
+    close_button = tk.Button(help_win, text="Close", command=help_win.destroy)
+    close_button.pack(pady=10)
+
+    help_win.transient(root)
+    help_win.grab_set()
+    root.wait_window(help_win)
 
 
 def update_email_listbox():
@@ -234,14 +357,15 @@ root.title("EmailKiller")
 root.configure(bg='black')
 menu_bar = Menu(root)
 root.config(menu=menu_bar)
+no_wait_var = tk.BooleanVar()
+no_wait_var.set(False)  # Default is to wait
 
 use_local_smtp = tk.BooleanVar()
 use_local_smtp.set(False)  # Set the initial value to False
 local_smtp_server = None  # Store the local SMTP server process
 
 # Description
-desc_label = tk.Label(root, text="EmailKiller: Send up to 10k emails per day. Takes 24 hours to send all emails "
-                                 "to prevent spam detection. Send from SMTP or local server. Sends HTML emails.",
+desc_label = tk.Label(root, text="EmailKiller\n\nSends up to 10k emails a day",
                       bg='black', fg='white', wraplength=500)
 desc_label.pack(pady=15)
 
@@ -254,13 +378,33 @@ email_dict = {}
 file_menu = Menu(menu_bar, tearoff=0)
 menu_bar.add_cascade(label="File", menu=file_menu)
 
-file_menu.add_checkbutton(label="Use Local SMTP", variable=use_local_smtp, command=toggle_use_local_smtp)
+
 file_menu.add_command(label="Save Configuration", command=save_configuration)
 file_menu.add_command(label="Load Configuration", command=load_configuration)
-file_menu.add_command(label="Clear Fields", command=clear_fields)
+file_menu.add_command(label="Save Email", command=save_email_to_html)
+
 file_menu.add_command(label="Load Email", command=load_email_from_html)
 file_menu.add_separator()
 file_menu.add_command(label="Exit", command=root.quit)
+
+options_menu = Menu(menu_bar, tearoff=0)
+menu_bar.add_cascade(label="Options", menu=options_menu)
+options_menu.add_checkbutton(label="Disable 24hr Rule", variable=no_wait_var)
+options_menu.add_checkbutton(label="Use Local SMTP", variable=use_local_smtp, command=toggle_use_local_smtp)
+
+options_menu.add_command(label="Clear Fields", command=clear_fields)
+# Add this line
+options_menu.add_command(label="HTML Editor", command=open_html_editor)
+
+
+# Help Menu
+
+
+help_menu = Menu(menu_bar, tearoff=0)
+menu_bar.add_cascade(label="Help", menu=help_menu)
+help_menu.add_command(label="About", command=about_dialog)
+help_menu.add_command(label="Help", command=help_dialog)
+
 
 frame_email_list = tk.Frame(root, bg='white')
 frame_email_list.pack(side=tk.LEFT, padx=10, pady=10, fill=tk.BOTH, expand=True)
@@ -311,7 +455,7 @@ tk.Button(frame_controls, text="Send Emails", command=send_emails).grid(row=8, c
 error_label = tk.Label(root, text="", bg='black')  # Error label for displaying error messages in red.
 error_label.pack(pady=10)
 
-log_display = tk.Text(root, height=10, width=40, bg='black', fg='white')
+log_display = tk.Text(root, height=10, width=40, bg='black', fg='white', borderwidth=0, highlightthickness=0)
 log_display.pack(pady=10)
 
 import sys
