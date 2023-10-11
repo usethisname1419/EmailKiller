@@ -1,13 +1,14 @@
 import smtplib
 import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, Menu
+from tkinter import filedialog, messagebox, scrolledtext, Menu, ttk
 import threading
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import json
 import subprocess
 import warnings
+import urllib.error, urllib.request
 
 warnings.simplefilter("ignore", DeprecationWarning)
 
@@ -19,6 +20,17 @@ error_dialog = None
 
 
 import re
+
+emailRegex = re.compile(r'''
+#example :
+#something-.+_@somedomain.com
+(
+([a-zA-Z0-9_.+]+
+@
+[a-zA-Z0-9_.+]+)
+)
+''', re.VERBOSE)
+
 
 class HighlightText(tk.Text):
     def __init__(self, *args, **kwargs):
@@ -43,6 +55,105 @@ class HighlightText(tk.Text):
             self.tag_add("HTML_TAG", f"{start} + {match.start()} chars", f"{start} + {match.end()} chars")
 
 
+def open_email_finder_gui():
+    email_finder_win = tk.Toplevel()
+    email_finder_win.title("Email Finder")
+
+    # Left side for URL input
+    url_input_label = tk.Label(email_finder_win, text="Enter URLs:")
+    url_input_label.pack(pady=5, anchor=tk.W)
+    url_input_text = scrolledtext.ScrolledText(email_finder_win, width=40, height=20)
+    url_input_text.pack(side=tk.LEFT, padx=10, pady=10)
+
+    # Right side for displaying emails
+    email_display_label = tk.Label(email_finder_win, text="Found Emails:")
+    email_display_label.pack(pady=5, anchor=tk.W)
+    email_display_text = scrolledtext.ScrolledText(email_finder_win, width=40, height=20)
+    email_display_text.pack(side=tk.RIGHT, padx=10, pady=10)
+
+    progress_label = tk.Label(email_finder_win, text="Progress:")
+    progress_label.pack(pady=5, anchor=tk.W)
+    progress = ttk.Progressbar(email_finder_win, orient="horizontal", length=200, mode="determinate")
+    progress.pack(pady=5)
+
+    def find_emails():
+        urls = url_input_text.get("1.0", tk.END).strip().split('\n')
+        total_urls = len(urls)
+        progress["maximum"] = total_urls
+        found_emails = []
+
+        for url in urls:
+            found_emails.extend(find_emails_from_single_url(url))
+            progress["value"] += 1  # Update the progress bar value
+            email_finder_win.update_idletasks()  # Update the progress bar display
+
+        # Display the found emails
+        for email in found_emails:
+            email_display_text.insert(tk.END, email + "\n")
+
+        progress["value"] = total_urls  # Set progress bar to max value when done
+
+    def clear_inputs():
+        """Clears both the URL input and found emails display."""
+        url_input_text.delete('1.0', tk.END)
+        email_display_text.delete('1.0', tk.END)
+
+    find_button = tk.Button(email_finder_win, text="Find Emails", command=find_emails)
+    find_button.pack(pady=10)
+    clear_button = tk.Button(email_finder_win, text="Clear", command=clear_inputs)
+    clear_button.pack(pady=10)
+
+def find_emails_from_single_url(url):
+    """
+    Extracts emails from a single URL and returns them.
+    """
+    try:
+        urlText = htmlPageRead(url)
+        return extractEmailsFromUrlText(urlText)
+    except urllib.error.HTTPError as err:
+        if err.code == 404:
+            cache_url = 'http://webcache.googleusercontent.com/search?q=cache:' + url
+            try:
+                urlText = htmlPageRead(cache_url)
+                return extractEmailsFromUrlText(urlText)
+            except:
+                return []
+        else:
+            return []
+
+def extractEmailsFromUrlText(urlText):
+    extractedEmail = emailRegex.findall(urlText)
+    emails = [email[0] for email in extractedEmail]
+    return emails
+
+def htmlPageRead(url):
+    headers = { 'User-Agent' : 'Mozilla/5.0' }
+    request = urllib.request.Request(url, None, headers)
+    response = urllib.request.urlopen(request)
+    urlHtmlPageRead = response.read()
+    urlText = urlHtmlPageRead.decode()
+    return urlText
+
+def emailsFromUrl(url):
+    try:
+        urlText = htmlPageRead(url)
+        return extractEmailsFromUrlText(urlText)
+    except urllib.error.HTTPError as err:
+        if err.code == 404:
+            cache_url = 'http://webcache.googleusercontent.com/search?q=cache:' + url
+            urlText = htmlPageRead(cache_url)
+            return extractEmailsFromUrlText(urlText)
+        else:
+            return []
+
+def find_emails_from_urls(url_list):
+    all_emails = []
+    for url in url_list:
+        emails = emailsFromUrl(url)
+        all_emails.extend(emails)
+    return list(set(all_emails))  # remove duplicates
+
+
 def open_html_editor():
     html_win = tk.Toplevel()
     html_win.title("HTML Editor")
@@ -60,14 +171,38 @@ def open_html_editor():
     current_content = html_editor.get("1.0", tk.END)
     advanced_html_editor.insert("1.0", current_content)
 
-    def save_and_close():
+    def save_to_file():
+        file_path = filedialog.asksaveasfilename(defaultextension=".html", filetypes=[("HTML Files", "*.html")])
+        if not file_path:
+            return  # User canceled the save dialog
+
+        with open(file_path, "w") as file:
+            html_content = advanced_html_editor.get("1.0", tk.END)
+            file.write(html_content)
+
+        messagebox.showinfo("Info", "Email saved successfully!")
+
+    def export_to_main():
         content = advanced_html_editor.get("1.0", tk.END)
         html_editor.delete("1.0", tk.END)
         html_editor.insert("1.0", content)
         html_win.destroy()
 
-    save_button = tk.Button(html_win, text="Save", command=save_and_close)
-    save_button.pack(pady=10)
+    def preview_html():
+        import webbrowser
+        with open("temp_preview.html", "w") as file:
+            html_content = advanced_html_editor.get("1.0", tk.END)
+            file.write(html_content)
+        webbrowser.open("temp_preview.html")
+
+    save_button = tk.Button(html_win, text="Save", command=save_to_file)
+    save_button.pack(pady=5)
+
+    export_button = tk.Button(html_win, text="Export", command=export_to_main)
+    export_button.pack(pady=5)
+
+    preview_button = tk.Button(html_win, text="Preview", command=preview_html)
+    preview_button.pack(pady=5)
 
 
 def close_error_dialog():
@@ -114,12 +249,13 @@ def load_configuration():
 
 def clear_fields():
     smtp_server.set("")
-    port_entry.set("465")  # Set the default port number
+    port_entry.set("")  # Set the default port number
     email_user.set("")
     email_pass.set("")
     subject_entry.delete(0, tk.END)
     html_editor.delete("1.0", tk.END)
-
+    email_dict.clear()
+    email_listbox.delete(0, tk.END)
 
 def save_email_to_html():
     file_path = filedialog.asksaveasfilename(defaultextension=".html", filetypes=[("HTML Files", "*.html")])
@@ -317,11 +453,17 @@ def help_dialog():
     help_win = tk.Toplevel()
     help_win.title("Help for EmailKiller")
 
-    help_text = """To use EmailKiller:
+    help_text = """    To use EmailKiller:
     1. Load or type in your SMTP configuration.
     2. Use 'Load Email List' to load the list of recipients.
     3. Load or type in the content of the HTML email.
     4. Press 'Send Emails' to start sending.
+    
+    To use EmailFinder:
+    1. Enter each URL on new line.
+    2. Press 'Find Emails' to start search
+    3. Emails found will be displayed in opposite column once complete
+    
 
     Note: Make sure your SMTP settings are correct."""
 
@@ -395,6 +537,7 @@ options_menu.add_checkbutton(label="Use Local SMTP", variable=use_local_smtp, co
 options_menu.add_command(label="Clear Fields", command=clear_fields)
 # Add this line
 options_menu.add_command(label="HTML Editor", command=open_html_editor)
+options_menu.add_command(label="Email Finder", command=open_email_finder_gui)
 
 
 # Help Menu
@@ -434,14 +577,16 @@ tk.Label(frame_controls, text="Password:", bg='black', fg='white').grid(row=3, c
 password_entry = tk.Entry(frame_controls, textvariable=email_pass, show='*', width=40)
 password_entry.grid(row=3, column=1, padx=5, pady=5, sticky=tk.W)
 
-# Label and Entry Widgets in the Second Column
-tk.Label(frame_controls, text="Subject:", bg='black', fg='white').grid(row=4, column=0, padx=5, pady=5, sticky=tk.W)
-subject_entry = tk.Entry(frame_controls, width=40)
-subject_entry.grid(row=4, column=1, padx=5, pady=5, sticky=tk.W)
+email_label = tk.Label(frame_controls, text="Compose Email", bg='black', fg='white', font=("Arial", 12, "bold"))
+email_label.grid(row=4, column=1, padx=5, pady=15, sticky=tk.W)
+
+tk.Label(frame_controls, text="Subject:", bg='black', fg='white').grid(row=5, column=0, padx=5, pady=5, sticky=tk.W)
+subject_entry = tk.Entry(frame_controls, width=40) # Declaration of subject_entry
+subject_entry.grid(row=5, column=1, padx=5, pady=5, sticky=tk.W)
 
 # HTML Editor (using scrolledtext)
-html_editor = scrolledtext.ScrolledText(frame_controls, width=50, height=10, bg='white', fg='black')
-html_editor.grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky=tk.W + tk.E + tk.N + tk.S)
+html_editor = scrolledtext.ScrolledText(frame_controls, width=60, height=13, bg='white', fg='black')
+html_editor.grid(row=6, column=0, columnspan=2, padx=5, pady=5, sticky=tk.W + tk.E + tk.N + tk.S)
 
 # Email Listbox
 email_listbox.pack(fill=tk.BOTH, expand=True)
@@ -455,7 +600,7 @@ tk.Button(frame_controls, text="Send Emails", command=send_emails).grid(row=8, c
 error_label = tk.Label(root, text="", bg='black')  # Error label for displaying error messages in red.
 error_label.pack(pady=10)
 
-log_display = tk.Text(root, height=10, width=40, bg='black', fg='white', borderwidth=0, highlightthickness=0)
+log_display = tk.Text(root, height=25, width=40, bg='black', fg='white', borderwidth=0, highlightthickness=0)
 log_display.pack(pady=10)
 
 import sys
