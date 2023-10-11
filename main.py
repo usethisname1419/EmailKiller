@@ -10,8 +10,11 @@ import subprocess
 import warnings
 import urllib.error, urllib.request
 
-warnings.simplefilter("ignore", DeprecationWarning)
+os.environ['PYTHONWARNINGS'] = 'ignore'
 
+warnings.simplefilter("ignore", DeprecationWarning)
+warnings.simplefilter("ignore", category=PendingDeprecationWarning)
+warnings.simplefilter("ignore", category=DeprecationWarning)
 emails_loaded = False
 should_stop = False
 
