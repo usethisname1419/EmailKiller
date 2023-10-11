@@ -13,6 +13,7 @@ import urllib.error, urllib.request
 warnings.simplefilter("ignore", DeprecationWarning)
 
 emails_loaded = False
+should_stop = False
 
 
 error_dialog = None
@@ -327,10 +328,19 @@ def load_email_list():
     update_email_listbox()
     emails_loaded = True
 
+def stop_sending():
+    global should_stop
+    should_stop = True
+    print("Email sending stopped by user")
 
 def send_emails():
     def threaded_send():
-        # Validate required fields
+
+        global should_stop
+        should_stop = False
+
+
+            # rest of your sending logic ...
 
         if not emails_loaded:
             messagebox.showwarning("Warning", "No emails loaded.")
@@ -369,6 +379,10 @@ def send_emails():
                 server.login(email_user.get(), email_pass.get())
 
             for recipient in email_list:
+                if should_stop:  # Check the stop flag before sending
+                    print("Email sending process halted by user.")
+                    should_stop = False  # Reset the flag
+                    break
                 msg = MIMEMultipart("alternative")
                 msg['From'] = email_user.get()
                 msg['To'] = recipient
@@ -416,7 +430,6 @@ email_dict_lock = threading.Lock()
 
 
 
-
 def clear_email_list():
     email_dict.clear()
     email_listbox.delete(0, tk.END)
@@ -426,7 +439,8 @@ def about_dialog():
     about_win = tk.Toplevel()
     about_win.title("About EmailKiller")
 
-    about_content = """
+    # Header content
+    header_content = """
 EmailKiller\n\nVersion 1.0\n\n
 EmailKiller: Send up to 10k emails per day.\n
 Takes 24 hours to send all emails to prevent spam detection.\n
@@ -434,12 +448,24 @@ Send from SMTP or local server.\n
 Fully supports HTML.\n
 Developed by Derek Johnston 2023\n\n
 If you found this software helpful, consider donating:\n
-ETH: 0xB139a7f6A2398fd4F50BbaC9970da8BE57E6F539\n
-BTC: bc1qeyuvfap99mx3r269htxm60qs04xuq4a9ahpjvt
     """
 
-    about_label = tk.Label(about_win, text=about_content, padx=20, pady=20)
-    about_label.pack()
+    header_label = tk.Label(about_win, text=header_content, padx=20, pady=20)
+    header_label.pack()
+
+    # Crypto addresses in a Text widget
+    crypto_content = """
+ETH: 0xB139a7f6A2398fd4F50BbaC9970da8BE57E6F539
+BTC: bc1qeyuvfap99mx3r269htxm60qs04xuq4a9ahpjvt
+    """
+    crypto_text = tk.Text(about_win, height=3, width=70, wrap=tk.WORD, padx=20, pady=20)
+    crypto_text.insert(tk.END, crypto_content)
+    crypto_text.config(state=tk.DISABLED)  # Make it read-only
+    crypto_text.pack()
+
+    # Enable copy/paste on the Text widget
+    crypto_text.bind("<Control-c>", lambda e: about_win.clipboard_append(crypto_text.selection_get()))
+    crypto_text.bind("<Control-v>", lambda e: None)  # Optional: Disable pasting
 
     close_button = tk.Button(about_win, text="Close", command=about_win.destroy)
     close_button.pack(pady=10)
@@ -618,8 +644,13 @@ class IORedirector(object):
 
 sys.stdout = IORedirector(log_display)
 
+
 copyright_label = tk.Label(root, text="© Derek Johnston 2023", bg='black', fg='white')
 copyright_label.pack(side=tk.BOTTOM, pady=10)
+stop_button = tk.Button(root, text="Stop Sending", command=stop_sending, bg='black', fg='white')
+stop_button.pack(pady=10, before=log_display)
+
+
 
 clear_button = tk.Button(frame_controls, text="Clear Email List", command=clear_email_list)
 clear_button.grid(row=9, column=0, columnspan=2, padx=5, pady=5, sticky=tk.W + tk.E)
