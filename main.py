@@ -331,7 +331,7 @@ def load_email_list():
 def stop_sending():
     global should_stop
     should_stop = True
-    print("Email sending stopped by user")
+    root.after(0, lambda: log_display.insert(tk.END, "Email sending process stopped by the user.\n"))
 
 def send_emails():
     def threaded_send():
