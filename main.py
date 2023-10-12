@@ -1,7 +1,7 @@
 import smtplib
 import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, Menu, ttk
+from tkinter import filedialog, messagebox, scrolledtext, Menu, ttk, simpledialog
 import threading
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -9,12 +9,14 @@ import json
 import subprocess
 import warnings
 import urllib.error, urllib.request
+from tidylib import tidy_document
+import os
 
 os.environ['PYTHONWARNINGS'] = 'ignore'
-
 warnings.simplefilter("ignore", DeprecationWarning)
 warnings.simplefilter("ignore", category=PendingDeprecationWarning)
 warnings.simplefilter("ignore", category=DeprecationWarning)
+
 emails_loaded = False
 should_stop = False
 
@@ -101,6 +103,9 @@ def open_email_finder_gui():
         """Clears both the URL input and found emails display."""
         url_input_text.delete('1.0', tk.END)
         email_display_text.delete('1.0', tk.END)
+        progress["value"] = 0
+
+
 
     find_button = tk.Button(email_finder_win, text="Find Emails", command=find_emails)
     find_button.pack(pady=10)
@@ -161,7 +166,8 @@ def find_emails_from_urls(url_list):
 def open_html_editor():
     html_win = tk.Toplevel()
     html_win.title("HTML Editor")
-
+    menu_bar = tk.Menu(html_win)
+    html_win.config(menu=menu_bar)
     advanced_html_editor_frame = tk.Frame(html_win)
     advanced_html_editor_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
 
@@ -174,6 +180,57 @@ def open_html_editor():
 
     current_content = html_editor.get("1.0", tk.END)
     advanced_html_editor.insert("1.0", current_content)
+
+
+
+    def cut_text():
+        advanced_html_editor.event_generate("<<Cut>>")
+
+    def copy_text():
+        advanced_html_editor.event_generate("<<Copy>>")
+
+    def paste_text():
+        advanced_html_editor.event_generate("<<Paste>>")
+
+    def undo():
+        advanced_html_editor.event_generate("<<Undo>>")
+
+    def redo():
+        advanced_html_editor.event_generate("<<Redo>>")
+
+    def find_text():
+        find_str = simpledialog.askstring("Find", "Enter text to find:")
+        if find_str:
+            start = advanced_html_editor.search(find_str, "1.0", stopindex=tk.END)
+            if start:
+                end = f"{start}+{len(find_str)}c"
+                advanced_html_editor.tag_add(tk.SEL, start, end)
+                advanced_html_editor.mark_set(tk.INSERT, end)
+                advanced_html_editor.see(tk.INSERT)
+
+    def validate_html():
+        html_text = advanced_html_editor.get("1.0", tk.END)
+        document, errors = tidy_document(html_text, options={'output-xhtml': 1, 'show-warnings': 0})
+
+        if not errors:
+            messagebox.showinfo('Validation Result', 'HTML is valid.')
+        else:
+            messagebox.showerror('Validation Result', f'HTML is not valid. {errors}')
+
+    def on_right_click(event):
+        context_menu.post(event.x_root, event.y_root)
+
+    def cancel_context_menu():
+        context_menu.unpost()
+
+    context_menu = tk.Menu(html_win, tearoff=0)
+    context_menu.add_command(label="Cut", command=cut_text)
+    context_menu.add_command(label="Copy", command=copy_text)
+    context_menu.add_command(label="Paste", command=paste_text)
+    context_menu.add_separator()
+    context_menu.add_command(label="Cancel", command=cancel_context_menu)
+
+    advanced_html_editor.bind("<Button-3>", on_right_click)
 
     def save_to_file():
         file_path = filedialog.asksaveasfilename(defaultextension=".html", filetypes=[("HTML Files", "*.html")])
@@ -198,6 +255,19 @@ def open_html_editor():
             html_content = advanced_html_editor.get("1.0", tk.END)
             file.write(html_content)
         webbrowser.open("temp_preview.html")
+
+    edit_menu = Menu(menu_bar, tearoff=0)
+    menu_bar.add_cascade(label="Edit", menu=edit_menu)
+    edit_menu.add_command(label="Cut", command=cut_text)
+    edit_menu.add_command(label="Copy", command=copy_text)
+    edit_menu.add_command(label="Paste", command=paste_text)
+    edit_menu.add_separator()
+    edit_menu.add_command(label="Undo", command=undo)
+    edit_menu.add_command(label="Redo", command=redo)
+    edit_menu.add_separator()
+    edit_menu.add_command(label="Find", command=find_text)
+    edit_menu.add_separator()
+    edit_menu.add_command(label="Validate HTML", command=validate_html)
 
     save_button = tk.Button(html_win, text="Save", command=save_to_file)
     save_button.pack(pady=5)
@@ -439,12 +509,22 @@ def clear_email_list():
 
 
 def about_dialog():
+    def copy_crypto_address():
+        crypto_text.clipboard_clear()
+        crypto_text.clipboard_append(crypto_text.selection_get())
+
+    def on_right_click(event):
+        context_menu.post(event.x_root, event.y_root)
+
     about_win = tk.Toplevel()
     about_win.title("About EmailKiller")
 
+
+    context_menu = tk.Menu(about_win, tearoff=0)
+    context_menu.add_command(label="Copy", command=copy_crypto_address)
     # Header content
     header_content = """
-EmailKiller\n\nVersion 1.0\n\n
+EmailKiller\n\nVersion 1.4\n\n
 EmailKiller: Send up to 10k emails per day.\n
 Takes 24 hours to send all emails to prevent spam detection.\n
 Send from SMTP or local server.\n
@@ -469,6 +549,11 @@ BTC: bc1qeyuvfap99mx3r269htxm60qs04xuq4a9ahpjvt
     # Enable copy/paste on the Text widget
     crypto_text.bind("<Control-c>", lambda e: about_win.clipboard_append(crypto_text.selection_get()))
     crypto_text.bind("<Control-v>", lambda e: None)  # Optional: Disable pasting
+
+    context_menu = tk.Menu(about_win, tearoff=0)
+    context_menu.add_command(label="Copy", command=copy_crypto_address)
+
+    crypto_text.bind("<Button-3>", on_right_click)
 
     close_button = tk.Button(about_win, text="Close", command=about_win.destroy)
     close_button.pack(pady=10)
@@ -621,10 +706,10 @@ html_editor.grid(row=6, column=0, columnspan=2, padx=5, pady=5, sticky=tk.W + tk
 email_listbox.pack(fill=tk.BOTH, expand=True)
 
 # Send Button in the Second Column
-tk.Button(frame_controls, text="Load Email List", command=load_email_list).grid(row=7, column=0, columnspan=2, padx=5, pady=5, sticky=tk.W + tk.E)
+tk.Button(frame_controls, text="Load Email List", command=load_email_list).grid(row=8, column=0, columnspan=2, padx=5, pady=5, sticky=tk.W + tk.E)
 
 # Send Button in the Second Column
-tk.Button(frame_controls, text="Send Emails", command=send_emails).grid(row=8, column=0, columnspan=2, padx=5, pady=5, sticky=tk.W + tk.E)
+tk.Button(frame_controls, text="Send Emails", command=send_emails).grid(row=7, column=0, columnspan=2, padx=5, pady=5, sticky=tk.W + tk.E)
 
 error_label = tk.Label(root, text="", bg='black')  # Error label for displaying error messages in red.
 error_label.pack(pady=10)
